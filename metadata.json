@@ -1,6 +1,6 @@
 {
-  "name": "Hospital SaaS Architectural Blueprint Hub",
-  "description": "An interactive, multi-dimensional architectural blueprint viewer, system topology simulator, and AI planning assistant for a multi-tenant Hospital Management SaaS Platform.",
+  "name": "LONGHEALTH",
+  "description": "An enterprise-grade, accessibility-first hospital management platform built on calm, clinical, healthcare-focused design principles.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
