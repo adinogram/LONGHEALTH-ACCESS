@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. PostgreSQL Persistent Relational Database
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: longhealth-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres_enterprise_secure}
+      POSTGRES_DB: ${DB_NAME:-longhealth_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d longhealth_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - longhealth-network
+
+  # ==========================================
+  # 2. Redis Cache & Job Queue Engine 
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: longhealth-redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_secure_pass}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_secure_pass", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - longhealth-network
+
+  # ==========================================
+  # 3. NestJS Enterprise API Gateway (Service Layer)
+  # ==========================================
+  backend:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    container_name: longhealth-backend-api
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      NEST_PORT: 3001
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres_enterprise_secure}@postgres:5432/${DB_NAME:-longhealth_db}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_pass}
+      JWT_SECRET: ${JWT_SECRET:-supersecret_enterprise_jwt_signing_key_99}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-mock_key_or_placeholder}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - longhealth-network
+
+  # ==========================================
+  # 4. Web Portal (React / Express Hybrid Frontend)
+  # ==========================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: longhealth-frontend-web
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres_enterprise_secure}@postgres:5432/${DB_NAME:-longhealth_db}?schema=public
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-mock_key_or_placeholder}
+      # Route clinical actions dynamically to our backend API container in the shared Docker network
+      VITE_API_GATEWAY_URL: http://backend:3001
+    depends_on:
+      - backend
+    networks:
+      - longhealth-network
+
+# Shared Isolated Virtual Private Overlay Network
+networks:
+  longhealth-network:
+    driver: bridge
+
+# Non-volatile Named Volumes for Data Resiliency
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

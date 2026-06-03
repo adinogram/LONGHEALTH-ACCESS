@@ -1,0 +1,597 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// 1. TENANCY & GLOBAL REGISTRY
+// ==========================================
+
+model Tenant {
+  id           String        @id @default(uuid()) @map("id")
+  name         String        @map("name")
+  subdomain    String        @unique @map("subdomain")
+  customDomain String?       @unique @map("custom_domain")
+  planTier     PlanTier      @default(STANDARD) @map("plan_tier")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  // Relationships
+  users        User[]
+  appointments Appointment[]
+  medicines    Medicine[]
+  tests        LaboratoryTest[]
+  billings     BillingInvoice[]
+  notifications Notification[]
+  auditLogs    AuditLog[]
+
+  @@index([subdomain])
+  @@map("tenants")
+}
+
+enum PlanTier {
+  STANDARD
+  PREMIUM
+  ENTERPRISE
+}
+
+// ==========================================
+// 2. IDENTITY & CORE USER STRUCTURE
+// ==========================================
+
+model User {
+  id           String      @id @default(uuid()) @map("id")
+  tenantId     String      @map("tenant_id")
+  email        String      @map("email")
+  passwordHash String      @map("password_hash")
+  role         UserRole    @map("role")
+  firstName    String      @map("first_name")
+  lastName     String      @map("last_name")
+  phone        String?     @map("phone")
+  isActive     Boolean     @default(true) @map("is_active")
+  mfaEnabled   Boolean     @default(false) @map("mfa_enabled")
+  mfaSecret    String?     @map("mfa_secret")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  // Link to Tenancy
+  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Relationships
+  employee     Employee?
+  patient      Patient?
+  sessions     UserSession[]
+  notificationsSent Notification[] @relation("NotificationSender")
+  notificationsReceived Notification[] @relation("NotificationRecipient")
+  auditLogs    AuditLog[]  @relation("OperatorLogs")
+
+  @@unique([tenantId, email])
+  @@index([tenantId, email, role])
+  @@map("users")
+}
+
+model UserSession {
+  id           String      @id @default(uuid()) @map("id")
+  userId       String      @map("user_id")
+  tokenHash    String      @map("token_hash")
+  deviceIp     String?     @map("device_ip")
+  userAgent    String?     @map("user_agent")
+  isActive     Boolean     @default(true) @map("is_active")
+  expiresAt    DateTime    @map("expires_at")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_sessions")
+}
+
+model RolePermission {
+  id           String      @id @default(uuid()) @map("id")
+  role         UserRole    @map("role")
+  permission   String      @map("permission")
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  @@unique([role, permission])
+  @@map("role_permissions")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  OWNER
+  ADMIN
+  DOCTOR
+  NURSE
+  PHARMACIST
+  RECEPTIONIST
+  ACCOUNTANT
+  PATIENT
+}
+
+// ==========================================
+// 3. CLINICAL STAFF (EMPLOYEES)
+// ==========================================
+
+model Employee {
+  id             String          @id @default(uuid()) @map("id")
+  tenantId       String          @map("tenant_id")
+  userId         String          @unique @map("user_id")
+  employeeCode   String          @map("employee_code")
+  department     Department      @map("department")
+  specialty      String?         @map("specialty")
+  licenseNumber  String?         @map("license_number")
+  qualification  String?         @map("qualification")
+  hireDate       DateTime        @map("hire_date")
+  netSalaryTier  Decimal         @db.Decimal(10, 2) @map("net_salary_tier")
+  status         EmployeeStatus  @default(ACTIVE) @map("status")
+
+  // Parent linkages
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Relationships
+  doctorConfig   DoctorConfig?
+  prescriptions  Prescription[]  @relation("DoctorEmployee")
+  dispensedOrders PharmacyOrder[] @relation("PharmacistEmployee")
+  payrollSlips   Payroll[]       @relation("EmployeeSlips")
+  approvedPayrolls Payroll[]     @relation("AccountantApprovals")
+  labReports     LabReport[]     @relation("TechnicianReports")
+
+  @@unique([tenantId, employeeCode])
+  @@index([tenantId, department, status])
+  @@map("employees")
+}
+
+enum Department {
+  CARDIOLOGY
+  PEDIATRICS
+  ONCOLOGY
+  NEUROLOGY
+  GENERAL_PRACTICE
+  PHARMACY
+  LABORATORY
+  ADMINISTRATION
+  FINANCE
+  EMERGENCY
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+}
+
+model DoctorConfig {
+  id             String    @id @default(uuid()) @map("id")
+  employeeId     String    @unique @map("employee_id")
+  consultingFee  Decimal   @db.Decimal(10, 2) @map("consulting_fee")
+  roomId         String?   @map("room_id")
+  onCallStatus   Boolean   @default(false) @map("on_call_status")
+
+  employee       Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("doctor_configs")
+}
+
+// ==========================================
+// 4. PATIENT MANAGEMENT
+// ==========================================
+
+model Patient {
+  id               String         @id @default(uuid()) @map("id")
+  tenantId         String         @map("tenant_id")
+  userId           String         @unique @map("user_id")
+  patientCode      String         @map("patient_code")
+  dateOfBirth      DateTime       @map("date_of_birth")
+  gender           Gender         @map("gender")
+  bloodGroup       BloodGroup?    @map("blood_group")
+  emergencyContact String?        @map("emergency_contact")
+  address          String?        @map("address")
+  status           PatientStatus  @default(OUTPATIENT) @map("status")
+
+  // Linkages
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Relationships
+  appointments     Appointment[]
+  prescriptions    Prescription[]
+  pharmacyOrders   PharmacyOrder[]
+  labReports       LabReport[]
+  billingInvoices  BillingInvoice[]
+
+  @@unique([tenantId, patientCode])
+  @@index([tenantId, gender, status])
+  @@map("patients")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum BloodGroup {
+  A_POSITIVE
+  A_NEGATIVE
+  B_POSITIVE
+  B_NEGATIVE
+  O_POSITIVE
+  O_NEGATIVE
+  AB_POSITIVE
+  AB_NEGATIVE
+}
+
+enum PatientStatus {
+  OUTPATIENT
+  INPATIENT
+  OBSERVATION
+  DISCHARGED
+}
+
+// ==========================================
+// 5. CLINICAL RECORD RUNTIME (APPOINTMENTS)
+// ==========================================
+
+model Appointment {
+  id              String            @id @default(uuid()) @map("id")
+  tenantId        String            @map("tenant_id")
+  patientId       String            @map("patient_id")
+  doctorId        String            @map("doctor_id")
+  appointmentDate DateTime          @map("appointment_date")
+  status          AppointmentStatus @default(SCHEDULED) @map("status")
+  complaint       String?           @map("complaint")
+  notes           String?           @map("notes")
+  symptoms        String?           @map("symptoms")
+  queueNumber     Int               @map("queue_number")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  // Links
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor          Employee          @relation("DoctorEmployee", fields: [doctorId], references: [id], onDelete: Cascade)
+
+  // Sub-linkages
+  prescription    Prescription?
+  labReports      LabReport[]
+
+  @@index([tenantId, appointmentDate, status])
+  @@map("appointments")
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+// ==========================================
+// 6. PHARMACY CATALOG & INVENTORY MODULE
+// ==========================================
+
+model Medicine {
+  id              String           @id @default(uuid()) @map("id")
+  tenantId        String           @map("tenant_id")
+  code            String           @map("medicine_code")
+  name            String           @map("name")
+  scientificName  String?          @map("scientific_name")
+  category        MedicineCategory @map("category")
+  manufacturer    String?          @map("manufacturer")
+  therapeuticClass String?         @map("therapeutic_class")
+  genericName     String?          @map("generic_name")
+  alertThreshold  Int              @default(50) @map("alert_threshold")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  inventoryItems  InventoryItem[]
+  prescriptionMedicines PrescriptionItem[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, category])
+  @@map("medicines")
+}
+
+enum MedicineCategory {
+  TABLET
+  INJECTION
+  INFUSION
+  SYRUP
+  INHALER
+  OINTMENT
+}
+
+model InventoryItem {
+  id              String          @id @default(uuid()) @map("id")
+  tenantId        String          @map("tenant_id")
+  medicineId      String          @map("medicine_id")
+  batchNumber     String          @map("batch_number")
+  manufactureDate DateTime        @map("manufacture_date")
+  expiryDate      DateTime        @map("expiry_date")
+  stockQty        Int             @map("stock_qty")
+  safetyStockQty  Int             @map("safety_stock_qty")
+  unitCost        Decimal         @db.Decimal(10, 2) @map("unit_cost")
+  retailPrice     Decimal         @db.Decimal(10, 2) @map("retail_price")
+  locationIndex   String?         @map("location_index")
+  status          InventoryStatus @default(ACTIVE) @map("status")
+
+  medicine        Medicine        @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, expiryDate])
+  @@index([tenantId, medicineId, status])
+  @@map("inventory_items")
+}
+
+enum InventoryStatus {
+  ACTIVE
+  SHORTAGE
+  EXPIRED
+}
+
+// ==========================================
+// 7. MEDICAL PRESCRIPTIONS
+// ==========================================
+
+model Prescription {
+  id              String             @id @default(uuid()) @map("id")
+  tenantId        String             @map("tenant_id")
+  appointmentId   String?            @unique @map("appointment_id")
+  doctorId        String             @map("doctor_id")
+  patientId       String             @map("patient_id")
+  diagnosis       String             @map("diagnosis")
+  notes           String?            @map("notes")
+  issuedAt        DateTime           @default(now()) @map("issued_at")
+
+  appointment     Appointment?       @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  doctor          Employee           @relation("DoctorEmployee", fields: [doctorId], references: [id], onDelete: Cascade)
+  patient         Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  items           PrescriptionItem[]
+  pharmacyOrders  PharmacyOrder[]
+
+  @@index([tenantId, patientId])
+  @@map("prescriptions")
+}
+
+model PrescriptionItem {
+  id               String       @id @default(uuid()) @map("id")
+  prescriptionId   String       @map("prescription_id")
+  medicineId       String       @map("medicine_id")
+  dosage           String       @map("dosage")
+  frequency        String       @map("frequency")
+  durationDayCount Int          @map("duration_day_count")
+  route            String       @map("route")
+  quantityRequired Int          @map("quantity_required")
+
+  prescription     Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  medicine         Medicine     @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@map("prescription_items")
+}
+
+model PharmacyOrder {
+  id              String         @id @default(uuid()) @map("id")
+  tenantId        String         @map("tenant_id")
+  prescriptionId  String?        @map("prescription_id")
+  patientId       String         @map("patient_id")
+  pharmacistId    String?        @map("pharmacist_id")
+  status          OrderStatus    @default(IN_PREPARATION) @map("status")
+  totalCost       Decimal        @db.Decimal(10, 2) @map("total_cost")
+  orderedAt       DateTime       @default(now()) @map("ordered_at")
+
+  prescription    Prescription?  @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
+  patient         Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  pharmacist      Employee?      @relation("PharmacistEmployee", fields: [pharmacistId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@map("pharmacy_orders")
+}
+
+enum OrderStatus {
+  IN_PREPARATION
+  READY
+  COLLECTED
+  RETURNED
+}
+
+// ==========================================
+// 8. LABORATORY & DIAGNOSTICS MODULE
+// ==========================================
+
+model LaboratoryTest {
+  id              String      @id @default(uuid()) @map("id")
+  tenantId        String      @map("tenant_id")
+  testCode        String      @map("test_code")
+  testName        String      @map("test_name")
+  category        String      @map("category")
+  standardCharge  Decimal     @db.Decimal(10, 2) @map("standard_charge")
+  description     String?     @map("description")
+
+  tenant          Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reports         LabReport[]
+
+  @@unique([tenantId, testCode])
+  @@map("laboratory_tests")
+}
+
+model LabReport {
+  id              String          @id @default(uuid()) @map("id")
+  tenantId        String          @map("tenant_id")
+  testId          String          @map("test_id")
+  appointmentId   String?         @map("appointment_id")
+  patientId       String          @map("patient_id")
+  technicianId    String?         @map("technician_id")
+  resultData      Json?           @map("result_data")
+  attachmentUrl   String?         @map("attachment_url")
+  status          LabReportStatus @default(PENDING) @map("status")
+  releasedAt      DateTime?       @map("released_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  test            LaboratoryTest  @relation(fields: [testId], references: [id], onDelete: Cascade)
+  appointment     Appointment?    @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  patient         Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  technician      Employee?       @relation("TechnicianReports", fields: [technicianId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, patientId, status])
+  @@map("lab_reports")
+}
+
+enum LabReportStatus {
+  PENDING
+  PROCESSING
+  REVIEW
+  FINAL
+}
+
+// ==========================================
+// 9. REVENUE RECOGNITION (BILLING & PAYROLL)
+// ==========================================
+
+model BillingInvoice {
+  id              String            @id @default(uuid()) @map("id")
+  tenantId        String            @map("tenant_id")
+  patientId       String            @map("patient_id")
+  receptionistId  String?           @map("receptionist_id")
+  totalAmount     Decimal           @db.Decimal(10, 2) @map("total_amount")
+  discount        Decimal           @default(0) @db.Decimal(10, 2) @map("discount")
+  tax             Decimal           @db.Decimal(10, 2) @map("tax")
+  grandTotal      Decimal           @db.Decimal(10, 2) @map("grand_total")
+  balanceAmount   Decimal           @db.Decimal(10, 2) @map("balance_amount")
+  status          InvoiceStatus     @default(UNPAID) @map("status")
+  paymentMethod   PaymentMethod?    @map("payment_method")
+  issuedAt        DateTime          @default(now()) @map("issued_at")
+
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  insuranceClaims InsuranceClaim[]
+
+  @@index([tenantId, patientId])
+  @@map("billing_invoices")
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  VOID
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  WIRE
+  INSURANCE
+}
+
+model InsuranceClaim {
+  id              String      @id @default(uuid()) @map("id")
+  tenantId        String      @map("tenant_id")
+  invoiceId       String      @map("invoice_id")
+  providerName    String      @map("provider_name")
+  policyNumber    String      @map("policy_number")
+  groupNumber     String?     @map("group_number")
+  claimedAmount   Decimal     @db.Decimal(10, 2) @map("claimed_amount")
+  approvedAmount  Decimal?    @db.Decimal(10, 2) @map("approved_amount")
+  status          ClaimStatus @default(SUBMITTED) @map("status")
+
+  invoice         BillingInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("insurance_claims")
+}
+
+enum ClaimStatus {
+  SUBMITTED
+  PROCESSING
+  APPROVED
+  REJECTED
+}
+
+model Payroll {
+  id             String        @id @default(uuid()) @map("id")
+  tenantId       String        @map("tenant_id")
+  employeeId     String        @map("employee_id")
+  accountantId   String?       @map("accountant_id")
+  payPeriodStart DateTime      @map("pay_period_start")
+  payPeriodEnd   DateTime      @map("pay_period_end")
+  basicSalary    Decimal       @db.Decimal(10, 2) @map("basic_salary")
+  allowances     Decimal       @default(0) @db.Decimal(10, 2) @map("allowances")
+  deductions     Decimal       @default(0) @db.Decimal(10, 2) @map("deductions")
+  netSalary      Decimal       @db.Decimal(10, 2) @map("net_salary")
+  status         PayrollStatus @default(DRAFT) @map("status")
+  paidAt         DateTime?     @map("paid_at")
+
+  employee       Employee      @relation("EmployeeSlips", fields: [employeeId], references: [id], onDelete: Cascade)
+  accountant     Employee?     @relation("AccountantApprovals", fields: [accountantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, employeeId, status])
+  @@map("payroll_records")
+}
+
+enum PayrollStatus {
+  DRAFT
+  APPROVED
+  PAID
+}
+
+// ==========================================
+// 10. SYSTEM NOTIFICATIONS & AUDITING
+// ==========================================
+
+model Notification {
+  id              String               @id @default(uuid()) @map("id")
+  tenantId        String               @map("tenant_id")
+  recipientId     String               @map("recipient_id")
+  senderId        String?              @map("sender_id")
+  type            NotificationType     @map("notification_type")
+  category        NotificationCategory @map("category")
+  title           String               @map("title")
+  message         String               @map("message")
+  isRead          Boolean              @default(false) @map("is_read")
+  sentAt          DateTime             @default(now()) @map("sent_at")
+
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipient       User                 @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  sender          User?                @relation("NotificationSender", fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, recipientId, isRead])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  SMS
+  EMAIL
+  APP
+  WEBSOCKET
+}
+
+enum NotificationCategory {
+  APPOINTMENT
+  BILL_PAID
+  CRISIS
+  RX
+  LAB
+}
+
+model AuditLog {
+  id             String   @id @default(uuid()) @map("id")
+  tenantId       String   @map("tenant_id")
+  operatorId     String?  @map("operator_id")
+  action         String   @map("action")
+  targetResource String   @map("target_resource")
+  requestIp      String?  @map("request_ip")
+  userAgent      String?  @map("user_agent")
+  originalPayload Json?    @map("original_payload")
+  changeDelta    Json?    @map("change_delta")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  operator       User?    @relation("OperatorLogs", fields: [operatorId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, operatorId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
