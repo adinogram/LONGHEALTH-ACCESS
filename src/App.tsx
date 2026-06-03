@@ -24,7 +24,7 @@ import { ManagementDashboards } from './components/ManagementDashboards';
 export default function App() {
   // Global States
   const [currentRole, setCurrentRole] = useState<ClinicalRole | null>(null);
-  const [isDark, setIsDark] = useState<boolean>(false);
+  const [isDark, setIsDark] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'workspace' | 'specifications' | 'chat'>('workspace');
   const [textScale, setTextScale] = useState<'standard' | 'large' | 'elderly'>('standard');
   const [globalTick, setGlobalTick] = useState<number>(0);
@@ -253,7 +253,7 @@ export default function App() {
             <Heart className="w-5 h-5 fill-current animate-pulse text-emerald-100" />
           </div>
           <div>
-            <h1 className="text-base font-display font-bold tracking-tight text-slate-900 dark:text-white">
+            <h1 className="text-base font-display font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400">
               LONGHEALTH
             </h1>
             <p className="text-[10px] text-slate-500 font-mono tracking-wider">ENTERPRISE CLINICAL PLATFORM</p>

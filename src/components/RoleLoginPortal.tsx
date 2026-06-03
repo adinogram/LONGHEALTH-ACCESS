@@ -106,7 +106,7 @@ export const RoleLoginPortal: React.FC<RoleLoginPortalProps> = ({ onLogin, isDar
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-display font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-            LONGHEALTH Clinical Workstation
+            <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">LONGHEALTH</span> Clinical Workstation
           </h2>
           <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm leading-relaxed max-w-3xl">
             A production-grade, highly consolidated platform used daily by doctors, admitting administrative officers, healthcare nurses, pharmacists, lab pathologists, medical accountants, and outpatients. Designed with a calming clinical white and emerald-green color theory, optimized to prevent visual strain and maximize treatment delivery.
@@ -182,11 +182,19 @@ export const RoleLoginPortal: React.FC<RoleLoginPortalProps> = ({ onLogin, isDar
       </div>
 
       {/* Information footer warning banner */}
-      <div className={`p-4 rounded-xl border flex items-start gap-2 text-xs text-slate-600 dark:text-slate-400 leading-normal ${isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-slate-50 border-slate-200'}`}>
-        <Info className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-        <p>
-          <strong>Security Protocol:</strong> In compliance with federal HIPAA laws, session access tokens are dynamically destroyed upon clicking and re-routing. LONGHEALTH maintains end-to-end data transmission audits, recorded in the administrative Ledger log records of every clinic tenant.
-        </p>
+      <div className={`p-6 rounded-2xl border grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-600 dark:text-slate-400 leading-normal ${isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-slate-50 border-slate-200'}`}>
+        <div className="flex items-start gap-2.5">
+          <Info className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+          <p>
+            <strong>Security Protocol:</strong> In compliance with federal HIPAA laws, session access tokens are dynamically destroyed upon clicking and re-routing. LONGHEALTH maintains end-to-end data transmission audits, recorded in the administrative Ledger log records of every clinic tenant.
+          </p>
+        </div>
+        <div className="md:border-l md:pl-4 border-slate-500/10 flex items-start gap-2.5">
+          <ShieldCheck className="w-4.5 h-4.5 text-teal-600 shrink-0 mt-0.5" />
+          <p>
+            <strong>Sandbox Shielding:</strong> This secure clinical application compiles inside a sandboxed offline-compliant container. Any active browser extension connections (such as MetaMask or Web3 wallets) are automatically managed by our Sandbox Shield, suppressing frame connection errors gracefully.
+          </p>
+        </div>
       </div>
     </div>
   );

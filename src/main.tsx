@@ -5,14 +5,39 @@ import './index.css';
 
 // Catch and gracefully handle MetaMask or wallet extension errors inside sandboxed preview iframes
 if (typeof window !== 'undefined') {
+  // Provide a safe placeholder ethereum provider so browser extensions do not throw connection exceptions in the sandboxed frame
+  if (!(window as any).ethereum) {
+    try {
+      (window as any).ethereum = {
+        isMetaMask: true,
+        isSandboxMock: true,
+        request: async (args: any) => {
+          console.info('[MetaMask Sandbox Mock] Neutralized request in secure offline workstation:', args?.method);
+          if (args?.method === 'eth_accounts' || args?.method === 'eth_requestAccounts') {
+            return [];
+          }
+          return null;
+        },
+        on: () => {},
+        removeListener: () => {},
+        enable: async () => [],
+        autoRefreshOnNetworkChange: false,
+      };
+    } catch (e) {
+      console.warn('[MetaMask Shield] Failed to define mock ethereum provider:', e);
+    }
+  }
+
   const isExtensionError = (message: string) => {
-    const msg = message.toLowerCase();
+    const msg = String(message || '').toLowerCase();
     return (
       msg.includes('metamask') ||
       msg.includes('ethereum') ||
       msg.includes('wallet') ||
       msg.includes('rpc') ||
-      msg.includes('contentdocument')
+      msg.includes('contentdocument') ||
+      msg.includes('extension') ||
+      msg.includes('failed to connect')
     );
   };
 
